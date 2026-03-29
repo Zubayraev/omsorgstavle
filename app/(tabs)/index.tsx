@@ -1,15 +1,25 @@
+import { auth, db } from '@/lib/firebase';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { signOut } from 'firebase/auth';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  ScrollView,
-  View,
-  Text,
-  StyleSheet,
+  ActivityIndicator,
+  Image,
+  Modal,
   SafeAreaView,
+  ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useAuth } from '@/context/AuthContext';
 
-// ─── Colors ──────────────────────────────────────────────────────────────────
+// ─── Colors ───────────────────────────────────────────────────────────────────
 const C = {
   background: '#F5F5F7',
   foreground: '#1A1F36',
@@ -21,31 +31,40 @@ const C = {
   attention: '#D4A017',
 };
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const medicineSchedule = [
-  { id: 1, name: 'PARACETAMOL', dosage: '500 mg', time: '08:00', status: 'completed' },
-  { id: 2, name: 'METFORMIN', dosage: '850 mg', time: '12:00', status: 'pending' },
-  { id: 3, name: 'ATORVASTATIN', dosage: '20 mg', time: '20:00', status: 'pending' },
-];
+const PIN = '1945';
 
-const currentShift = {
-  nurse: 'Kari Nordmann',
-  role: 'Sykepleier',
-  shift: 'Dag',
-  time: '07:00 – 15:00',
-  phone: '+47 123 45 678',
+// ─── Types ────────────────────────────────────────────────────────────────────
+type Medicine = {
+  id: string;
+  name: string;
+  dosage: string;
+  time: string;
+  status: string;
 };
 
-const messages = [
-  { id: 1, from: 'Lege Hansen', text: 'Blodprøve må tas i morgen tidlig', priority: 'attention', time: '13:45' },
-  { id: 2, from: 'Familie', text: 'Kommer på besøk kl 16:00', priority: 'normal', time: '12:30' },
-];
+type Shift = {
+  id: string;
+  nurse: string;
+  role: string;
+  shift: string;
+  time: string;
+  phone?: string;
+};
 
-const tasks = [
-  { id: 1, task: 'Blodtrykksmåling', time: '14:00', completed: false },
-  { id: 2, task: 'Sårstell', time: '15:30', completed: false },
-  { id: 3, task: 'Mobilisering', time: '10:00', completed: true },
-];
+type Message = {
+  id: string;
+  from: string;
+  text: string;
+  priority: string;
+  time: string;
+};
+
+type Task = {
+  id: string;
+  task: string;
+  time: string;
+  completed: boolean;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function useCurrentTime() {
@@ -68,6 +87,25 @@ function formatDate(date: Date) {
     month: 'long',
     day: 'numeric',
   });
+}
+
+function useCollection<T extends { id: string }>(path: [string, ...string[]], orderByField?: string) {
+  const [data, setData] = useState<T[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const ref = collection(db, ...path);
+    const q = orderByField ? query(ref, orderBy(orderByField)) : ref;
+    const unsub = onSnapshot(q, (snap) => {
+      setData(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<T, 'id'>) })) as T[]
+      );
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  return { data, loading };
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -98,122 +136,182 @@ function Checkbox({ done, size = 22 }: { done: boolean; size?: number }) {
   );
 }
 
+function LoadingCard() {
+  return (
+    <View style={[s.card, { padding: 24, alignItems: 'center' }]}>
+      <ActivityIndicator color={C.mutedFg} />
+    </View>
+  );
+}
+
+function EmptyCard({ text }: { text: string }) {
+  return (
+    <View style={[s.card, { padding: 24, alignItems: 'center' }]}>
+      <Text style={{ color: C.mutedFg, fontSize: 15 }}>{text}</Text>
+    </View>
+  );
+}
+
 // ─── Sections ─────────────────────────────────────────────────────────────────
-function MedicineSection() {
+function MedicineSection({ avdelingId }: { avdelingId: string }) {
+  const { data: medicines, loading } = useCollection<Medicine>(
+    ['avdelinger', avdelingId, 'medisiner'],
+    'time'
+  );
+
   return (
     <View style={s.section}>
       <SectionHeader
         label="MEDISIN"
         icon={<MaterialCommunityIcons name="pill" size={30} color={C.foreground} />}
       />
-      <View style={s.card}>
-        {medicineSchedule.map((med, i) => (
-          <View key={med.id}>
-            <View style={s.medRow}>
-              <View style={s.medLeft}>
-                <Text style={s.medName}>{med.name}</Text>
-                <Text style={s.medDosage}>{med.dosage}</Text>
+      {loading ? (
+        <LoadingCard />
+      ) : medicines.length === 0 ? (
+        <EmptyCard text="Ingen medisiner registrert" />
+      ) : (
+        <View style={s.card}>
+          {medicines.map((med, i) => (
+            <View key={med.id}>
+              <View style={s.medRow}>
+                <View style={s.medLeft}>
+                  <Text style={s.medName}>{med.name}</Text>
+                  <Text style={s.medDosage}>{med.dosage}</Text>
+                </View>
+                <View style={s.medRight}>
+                  <Text style={s.medTime}>{med.time}</Text>
+                  <Checkbox done={med.status === 'completed'} size={24} />
+                </View>
               </View>
-              <View style={s.medRight}>
-                <Text style={s.medTime}>{med.time}</Text>
-                <Checkbox done={med.status === 'completed'} size={24} />
-              </View>
+              {i < medicines.length - 1 && <Divider />}
             </View>
-            {i < medicineSchedule.length - 1 && <Divider />}
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
-function ShiftSection() {
+function ShiftSection({ avdelingId }: { avdelingId: string }) {
+  const { data: shifts, loading } = useCollection<Shift>(
+    ['avdelinger', avdelingId, 'vakter']
+  );
+  const shift = shifts[0];
+
   return (
     <View style={s.section}>
       <SectionHeader
         label="VAKT"
         icon={<Feather name="users" size={26} color={C.foreground} />}
       />
-      <View style={s.card}>
-        <View style={s.shiftGrid}>
-          <View style={s.shiftCell}>
-            <Text style={s.shiftLabel}>Navn</Text>
-            <Text style={s.shiftValue}>{currentShift.nurse}</Text>
-          </View>
-          <View style={s.shiftCell}>
-            <Text style={s.shiftLabel}>Rolle</Text>
-            <Text style={s.shiftValue}>{currentShift.role}</Text>
-          </View>
-          <View style={s.shiftCell}>
-            <Text style={s.shiftLabel}>Skift</Text>
-            <Text style={s.shiftValue}>{currentShift.shift}</Text>
-          </View>
-          <View style={s.shiftCell}>
-            <Text style={s.shiftLabel}>Tid</Text>
-            <Text style={s.shiftValue}>{currentShift.time}</Text>
+      {loading ? (
+        <LoadingCard />
+      ) : !shift ? (
+        <EmptyCard text="Ingen vaktinfo registrert" />
+      ) : (
+        <View style={s.card}>
+          <View style={s.shiftGrid}>
+            <View style={s.shiftCell}>
+              <Text style={s.shiftLabel}>Navn</Text>
+              <Text style={s.shiftValue}>{shift.nurse}</Text>
+            </View>
+            <View style={s.shiftCell}>
+              <Text style={s.shiftLabel}>Rolle</Text>
+              <Text style={s.shiftValue}>{shift.role}</Text>
+            </View>
+            <View style={s.shiftCell}>
+              <Text style={s.shiftLabel}>Skift</Text>
+              <Text style={s.shiftValue}>{shift.shift}</Text>
+            </View>
+            <View style={s.shiftCell}>
+              <Text style={s.shiftLabel}>Tid</Text>
+              <Text style={s.shiftValue}>{shift.time}</Text>
+            </View>
           </View>
         </View>
-      </View>
+      )}
     </View>
   );
 }
 
-function MessagesSection() {
+function MessagesSection({ avdelingId }: { avdelingId: string }) {
+  const { data: messages, loading } = useCollection<Message>(
+    ['avdelinger', avdelingId, 'beskjeder'],
+    'createdAt'
+  );
+
   return (
     <View style={s.section}>
       <SectionHeader
         label="BESKJEDER"
         icon={<Feather name="message-square" size={22} color={C.foreground} />}
       />
-      <View style={s.card}>
-        {messages.map((msg, i) => (
-          <View key={msg.id}>
-            <View style={s.msgRow}>
-              <View
-                style={[
-                  s.msgPriorityBar,
-                  { backgroundColor: msg.priority === 'attention' ? C.attention : 'transparent' },
-                ]}
-              />
-              <View style={s.msgContent}>
-                <View style={s.msgMeta}>
-                  <Text style={s.msgFrom}>{msg.from}</Text>
-                  <Text style={s.msgTime}>{msg.time}</Text>
+      {loading ? (
+        <LoadingCard />
+      ) : messages.length === 0 ? (
+        <EmptyCard text="Ingen beskjeder" />
+      ) : (
+        <View style={s.card}>
+          {messages.map((msg, i) => (
+            <View key={msg.id}>
+              <View style={s.msgRow}>
+                <View
+                  style={[
+                    s.msgPriorityBar,
+                    { backgroundColor: msg.priority === 'attention' ? C.attention : 'transparent' },
+                  ]}
+                />
+                <View style={s.msgContent}>
+                  <View style={s.msgMeta}>
+                    <Text style={s.msgFrom}>{msg.from}</Text>
+                    <Text style={s.msgTime}>{msg.time}</Text>
+                  </View>
+                  <Text style={s.msgText}>{msg.text}</Text>
                 </View>
-                <Text style={s.msgText}>{msg.text}</Text>
               </View>
+              {i < messages.length - 1 && <Divider />}
             </View>
-            {i < messages.length - 1 && <Divider />}
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
-function TasksSection() {
+function TasksSection({ avdelingId }: { avdelingId: string }) {
+  const { data: tasks, loading } = useCollection<Task>(
+    ['avdelinger', avdelingId, 'oppgaver'],
+    'time'
+  );
+
   return (
     <View style={[s.section, { marginBottom: 48 }]}>
       <SectionHeader
         label="OPPGAVER"
         icon={<Feather name="check-square" size={22} color={C.foreground} />}
       />
-      <View style={s.card}>
-        {tasks.map((task, i) => (
-          <View key={task.id}>
-            <View style={s.taskRow}>
-              <View style={s.taskLeft}>
-                <Checkbox done={task.completed} size={20} />
-                <Text style={[s.taskName, task.completed && s.taskDone]}>
-                  {task.task}
-                </Text>
+      {loading ? (
+        <LoadingCard />
+      ) : tasks.length === 0 ? (
+        <EmptyCard text="Ingen oppgaver registrert" />
+      ) : (
+        <View style={s.card}>
+          {tasks.map((task, i) => (
+            <View key={task.id}>
+              <View style={s.taskRow}>
+                <View style={s.taskLeft}>
+                  <Checkbox done={task.completed} size={20} />
+                  <Text style={[s.taskName, task.completed && s.taskDone]}>
+                    {task.task}
+                  </Text>
+                </View>
+                <Text style={s.taskTime}>{task.time}</Text>
               </View>
-              <Text style={s.taskTime}>{task.time}</Text>
+              {i < tasks.length - 1 && <Divider />}
             </View>
-            {i < tasks.length - 1 && <Divider />}
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -221,35 +319,79 @@ function TasksSection() {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function OmsorgstavleScreen() {
   const now = useCurrentTime();
+  const { avdelingId } = useAuth();
+  const [pinModal, setPinModal] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState(false);
+
+  function handleLogout() {
+    if (pin === PIN) {
+      setPinModal(false);
+      setPin('');
+      setPinError(false);
+      signOut(auth).catch(() => {});
+      router.replace('/');
+    } else {
+      setPinError(true);
+      setPin('');
+    }
+  }
+
+  const avd = avdelingId ?? 'avdeling1';
 
   return (
     <SafeAreaView style={s.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.card} />
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={s.header}>
-          <View>
-            <Text style={s.headerTitle}>OMSORGSTAVLE</Text>
-            <Text style={s.headerDate}>{formatDate(now)}</Text>
-          </View>
-          <View style={s.headerRight}>
-            <Text style={s.headerTime}>{formatTime(now)}</Text>
-            <Text style={s.headerTimeLabel}>Nåværende tidspunkt</Text>
-          </View>
-        </View>
+      <StatusBar barStyle="dark-content" backgroundColor={C.background} />
 
-        {/* Sections */}
+      <View style={s.header}>
+        <Image source={require('@/assets/images/logo.png')} style={s.logo} resizeMode="contain" />
+        <View style={s.headerRight}>
+          <Text style={s.headerTime}>{formatTime(now)}</Text>
+          <Text style={s.headerDate} numberOfLines={2}>{formatDate(now)}</Text>
+          <TouchableOpacity style={s.logoutBtn} onPress={() => { setPin(''); setPinError(false); setPinModal(true); }}>
+            <Text style={s.logoutBtnText}>Logg ut</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={s.main}>
-          <MedicineSection />
-          <ShiftSection />
-          <MessagesSection />
-          <TasksSection />
+          <MedicineSection avdelingId={avd} />
+          <ShiftSection avdelingId={avd} />
+          <MessagesSection avdelingId={avd} />
+          <TasksSection avdelingId={avd} />
         </View>
       </ScrollView>
+
+      {/* PIN-modal */}
+      <Modal visible={pinModal} transparent animationType="fade">
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>Logg ut</Text>
+            <Text style={s.modalSub}>Skriv inn PIN-koden for å logge ut</Text>
+            <TextInput
+              style={[s.pinInput, pinError && { borderColor: C.critical }]}
+              value={pin}
+              onChangeText={(t) => { setPin(t); setPinError(false); }}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={4}
+              placeholder="• • • •"
+              placeholderTextColor="#9DA3B4"
+              autoFocus
+            />
+            {pinError && <Text style={s.pinError}>Feil PIN-kode</Text>}
+            <View style={s.modalBtns}>
+              <TouchableOpacity style={s.cancelBtn} onPress={() => setPinModal(false)}>
+                <Text style={s.cancelText}>Avbryt</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.confirmBtn} onPress={handleLogout}>
+                <Text style={s.confirmText}>Logg ut</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -269,41 +411,31 @@ const s = StyleSheet.create({
 
   // Header
   header: {
-    backgroundColor: C.card,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    paddingHorizontal: 28,
-    paddingVertical: 20,
+    backgroundColor: C.background,
+    borderBottomWidth: 0,
+    paddingLeft: 0,
+    paddingRight: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: '600',
-    color: C.foreground,
-    letterSpacing: 0.5,
-  },
-  headerDate: {
-    fontSize: 13,
-    color: C.mutedFg,
-    fontWeight: '500',
-    marginTop: 2,
-  },
   headerRight: {
     alignItems: 'flex-end',
+    flexShrink: 1,
   },
   headerTime: {
-    fontSize: 36,
-    fontWeight: '600',
+    fontSize: 30,
+    fontWeight: '700',
     color: C.foreground,
-    lineHeight: 40,
+    lineHeight: 34,
   },
-  headerTimeLabel: {
-    fontSize: 12,
+  headerDate: {
+    fontSize: 11,
     color: C.mutedFg,
     fontWeight: '500',
     marginTop: 2,
+    textAlign: 'right',
   },
 
   // Layout
@@ -469,4 +601,67 @@ const s = StyleSheet.create({
     color: C.mutedFg,
     fontWeight: '500',
   },
+
+  logo: {
+    width: 170,
+    height: 48,
+    marginLeft: -16,
+  },
+
+  // Logout button
+  logoutBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-end',
+    backgroundColor: C.foreground,
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  logoutBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  // PIN modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 28,
+    width: '100%',
+    maxWidth: 340,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: C.foreground, marginBottom: 6 },
+  modalSub: { fontSize: 14, color: C.mutedFg, marginBottom: 20 },
+  pinInput: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 22,
+    color: C.foreground,
+    textAlign: 'center',
+    letterSpacing: 8,
+    marginBottom: 8,
+  },
+  pinError: { fontSize: 13, color: C.critical, marginBottom: 12, textAlign: 'center' },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  cancelBtn: {
+    flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 4,
+    paddingVertical: 13, alignItems: 'center',
+  },
+  cancelText: { fontSize: 15, fontWeight: '600', color: C.mutedFg },
+  confirmBtn: {
+    flex: 1, backgroundColor: C.foreground, borderRadius: 4,
+    paddingVertical: 13, alignItems: 'center',
+  },
+  confirmText: { fontSize: 15, fontWeight: '600', color: '#fff' },
 });
