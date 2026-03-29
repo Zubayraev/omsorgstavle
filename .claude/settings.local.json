@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/Users/Zubay/omsorgstavle/app/\\\\\\(tabs\\\\\\)/)",
+      "Bash(cat /c/Users/Zubay/omsorgstavle/app/\\\\\\(tabs\\\\\\)/_layout.tsx)"
+    ]
+  }
+}
