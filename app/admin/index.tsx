@@ -1,19 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Modal,
+  TextInput, ActivityIndicator, Modal, Keyboard,
 } from 'react-native';
 import {
-  collection, addDoc, onSnapshot, orderBy, query, serverTimestamp,
+  collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, doc,
 } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
+import { signOut, createUserWithEmailAndPassword, signOut as fbSignOut } from 'firebase/auth';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import { router } from 'expo-router';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { db, auth } from '@/lib/firebase';
+import { db, auth, firebaseConfig } from '@/lib/firebase';
+import { useAuth } from '@/context/AuthContext';
 
 const C = {
   background: '#F5F5F7', foreground: '#1A1F36', card: '#FFFFFF',
   mutedFg: '#6B6E7B', border: '#D1D3D9',
+  success: '#2D7A3E', critical: '#C9302C',
 };
 
 type Avdeling = { id: string; navn: string };
@@ -57,6 +61,7 @@ const MENU_ITEMS = [
 ];
 
 export default function AdminDashboard() {
+  const { rolle } = useAuth();
   const [avdelinger, setAvdelinger] = useState<Avdeling[]>([]);
   const [selected, setSelected] = useState<Avdeling | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +71,25 @@ export default function AdminDashboard() {
   const [addModal, setAddModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+
+  // Opprett boligbruker
+  const [boligModal, setBoligModal] = useState(false);
+  const [boligPin, setBoligPin] = useState('');
+  const [boligAvdelingValgt, setBoligAvdelingValgt] = useState<Avdeling | null>(null);
+  const [boligLaster, setBoligLaster] = useState(false);
+  const [boligFeil, setBoligFeil] = useState('');
+  const [boligSuksess, setBoligSuksess] = useState('');
+
+  // Opprett bruker
+  const [brukerModal, setBrukerModal] = useState(false);
+  const [brukerNavn, setBrukerNavn] = useState('');
+  const [brukerEpost, setBrukerEpost] = useState('');
+  const [brukerPassord, setBrukerPassord] = useState('');
+  const [brukerRolle, setBrukerRolle] = useState<'admin' | 'ansatt'>('ansatt');
+  const [brukerAvdeling, setBrukerAvdeling] = useState('');
+  const [brukerLaster, setBrukerLaster] = useState(false);
+  const [brukerFeil, setBrukerFeil] = useState('');
+  const [brukerSuksess, setBrukerSuksess] = useState('');
 
   useEffect(() => {
     const q = query(collection(db, 'avdelinger'), orderBy('createdAt'));
@@ -94,15 +118,113 @@ export default function AdminDashboard() {
     router.replace('/');
   }
 
+  function resetBrukerSkjema() {
+    setBrukerNavn('');
+    setBrukerEpost('');
+    setBrukerPassord('');
+    setBrukerRolle('ansatt');
+    setBrukerAvdeling('');
+    setBrukerFeil('');
+    setBrukerSuksess('');
+  }
+
+  function resetBoligSkjema() {
+    setBoligPin('');
+    setBoligAvdelingValgt(selected);
+    setBoligFeil('');
+    setBoligSuksess('');
+  }
+
+  async function handleOpprettBolig() {
+    if (!boligAvdelingValgt) { setBoligFeil('Velg en avdeling'); return; }
+    if (boligPin.length !== 4) { setBoligFeil('PIN-koden må være nøyaktig 4 siffer'); return; }
+    setBoligLaster(true);
+    setBoligFeil('');
+    setBoligSuksess('');
+    try {
+      await addDoc(collection(db, 'boliger'), {
+        navn: boligAvdelingValgt.navn,
+        pin: boligPin,
+        avdelingId: boligAvdelingValgt.id,
+        createdAt: serverTimestamp(),
+      });
+      setBoligSuksess(`"${boligAvdelingValgt.navn}" er opprettet`);
+      setBoligPin('');
+    } catch {
+      setBoligFeil('Kunne ikke opprette boligbruker');
+    } finally {
+      setBoligLaster(false);
+    }
+  }
+
+  async function handleOpprettBruker() {
+    if (!brukerNavn.trim() || !brukerEpost.trim() || !brukerPassord.trim()) {
+      setBrukerFeil('Fyll inn navn, e-post og passord');
+      return;
+    }
+    if (brukerRolle === 'ansatt' && !brukerAvdeling.trim()) {
+      setBrukerFeil('Fyll inn avdeling for ansatt');
+      return;
+    }
+    setBrukerLaster(true);
+    setBrukerFeil('');
+    setBrukerSuksess('');
+
+    // Opprett bruker via sekundær app-instans for å unngå at admin logges ut
+    const tempAppName = 'temp-create-user-' + Date.now();
+    let tempApp: ReturnType<typeof initializeApp> | null = null;
+    try {
+      tempApp = initializeApp(firebaseConfig, tempAppName);
+      const tempAuth = getAuth(tempApp);
+      const cred = await createUserWithEmailAndPassword(tempAuth, brukerEpost.trim(), brukerPassord);
+      await fbSignOut(tempAuth);
+
+      await setDoc(doc(db, 'brukere', cred.user.uid), {
+        navn: brukerNavn.trim(),
+        epost: brukerEpost.trim(),
+        rolle: brukerRolle,
+        avdelingId: brukerRolle === 'ansatt' ? brukerAvdeling.trim() : null,
+      });
+
+      setBrukerSuksess(`Bruker "${brukerNavn.trim()}" er opprettet`);
+      resetBrukerSkjema();
+    } catch (e: any) {
+      if (e?.code === 'auth/email-already-in-use') {
+        setBrukerFeil('E-posten er allerede i bruk');
+      } else if (e?.code === 'auth/weak-password') {
+        setBrukerFeil('Passordet må være minst 6 tegn');
+      } else {
+        setBrukerFeil('Kunne ikke opprette bruker');
+      }
+    } finally {
+      if (tempApp) {
+        try { await deleteApp(tempApp); } catch {}
+      }
+      setBrukerLaster(false);
+    }
+  }
+
   return (
     <View style={s.container}>
       {/* ── Header ── */}
       <View style={s.header}>
         <View style={s.headerTop}>
           <Text style={s.headerTitle}>Admin</Text>
-          <TouchableOpacity style={s.gearBtn} onPress={() => setSettingsOpen(true)}>
-            <Feather name="settings" size={22} color={C.foreground} />
-          </TouchableOpacity>
+          <View style={s.headerActions}>
+            {rolle === 'admin' && (
+              <>
+                <TouchableOpacity style={s.addUserBtn} onPress={() => { resetBoligSkjema(); setBoligModal(true); }}>
+                  <Feather name="home" size={18} color={C.foreground} />
+                </TouchableOpacity>
+                <TouchableOpacity style={s.addUserBtn} onPress={() => { resetBrukerSkjema(); setBrukerModal(true); }}>
+                  <Feather name="user-plus" size={18} color={C.foreground} />
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity style={s.gearBtn} onPress={() => setSettingsOpen(true)}>
+              <Feather name="settings" size={22} color={C.foreground} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Avdeling-velger */}
@@ -204,6 +326,138 @@ export default function AdminDashboard() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Opprett boligbruker modal ── */}
+      <Modal visible={boligModal} transparent animationType="fade">
+        <View style={s.overlay}>
+          <View style={s.addModal}>
+            <Text style={s.addModalTitle}>Ny boligstavle</Text>
+
+            <TextInput
+              style={[s.input, { textAlign: 'center', letterSpacing: 6, fontSize: 20 }]}
+              placeholder="PIN (4 siffer)"
+              placeholderTextColor="#9DA3B4"
+              value={boligPin}
+              onChangeText={(t) => { const v = t.replace(/\D/g, '').slice(0, 4); setBoligPin(v); setBoligFeil(''); if (v.length === 4) Keyboard.dismiss(); }}
+              keyboardType="number-pad"
+              maxLength={4}
+              secureTextEntry
+            />
+
+            <Text style={s.rolleLabel}>Koble til avdeling</Text>
+            <View style={s.boligAvdelingListe}>
+              {avdelinger.map((avd) => (
+                <TouchableOpacity
+                  key={avd.id}
+                  style={[s.boligAvdelingItem, boligAvdelingValgt?.id === avd.id && s.boligAvdelingItemActive]}
+                  onPress={() => setBoligAvdelingValgt(avd)}
+                >
+                  <Text style={[s.boligAvdelingTekst, boligAvdelingValgt?.id === avd.id && s.boligAvdelingTekstActive]}>
+                    {avd.navn}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {boligFeil ? <Text style={s.feilTekst}>{boligFeil}</Text> : null}
+            {boligSuksess ? <Text style={s.suksessTekst}>{boligSuksess}</Text> : null}
+
+            <View style={s.addModalBtns}>
+              <TouchableOpacity style={s.cancelBtn} onPress={() => { setBoligModal(false); resetBoligSkjema(); }}>
+                <Text style={s.cancelText}>Avbryt</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.confirmBtn} onPress={handleOpprettBolig} disabled={boligLaster}>
+                {boligLaster
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={s.confirmText}>Opprett</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Opprett bruker modal ── */}
+      <Modal visible={brukerModal} transparent animationType="fade">
+        <View style={s.overlay}>
+          <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 400, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
+            <View style={s.addModal}>
+              <Text style={s.addModalTitle}>Opprett bruker</Text>
+
+              <TextInput
+                style={s.input}
+                placeholder="Fullt navn"
+                placeholderTextColor="#9DA3B4"
+                value={brukerNavn}
+                onChangeText={setBrukerNavn}
+                autoCapitalize="words"
+              />
+              <TextInput
+                style={s.input}
+                placeholder="E-post"
+                placeholderTextColor="#9DA3B4"
+                value={brukerEpost}
+                onChangeText={setBrukerEpost}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TextInput
+                style={s.input}
+                placeholder="Passord (min. 6 tegn)"
+                placeholderTextColor="#9DA3B4"
+                value={brukerPassord}
+                onChangeText={setBrukerPassord}
+                secureTextEntry
+              />
+
+              {/* Rolle-velger */}
+              <Text style={s.rolleLabel}>Rolle</Text>
+              <View style={s.rolleRow}>
+                <TouchableOpacity
+                  style={[s.rolleBtn, brukerRolle === 'ansatt' && s.rolleBtnActive]}
+                  onPress={() => setBrukerRolle('ansatt')}
+                >
+                  <Text style={[s.rolleBtnText, brukerRolle === 'ansatt' && s.rolleBtnTextActive]}>Ansatt</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.rolleBtn, brukerRolle === 'admin' && s.rolleBtnActive]}
+                  onPress={() => setBrukerRolle('admin')}
+                >
+                  <Text style={[s.rolleBtnText, brukerRolle === 'admin' && s.rolleBtnTextActive]}>Admin</Text>
+                </TouchableOpacity>
+              </View>
+
+              {brukerRolle === 'ansatt' && (
+                <TextInput
+                  style={s.input}
+                  placeholder="Avdeling-ID (f.eks. avdeling1)"
+                  placeholderTextColor="#9DA3B4"
+                  value={brukerAvdeling}
+                  onChangeText={setBrukerAvdeling}
+                  autoCapitalize="none"
+                />
+              )}
+
+              {brukerFeil ? <Text style={s.feilTekst}>{brukerFeil}</Text> : null}
+              {brukerSuksess ? <Text style={s.suksessTekst}>{brukerSuksess}</Text> : null}
+
+              <View style={s.addModalBtns}>
+                <TouchableOpacity
+                  style={s.cancelBtn}
+                  onPress={() => { setBrukerModal(false); resetBrukerSkjema(); }}
+                >
+                  <Text style={s.cancelText}>Avbryt</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.confirmBtn} onPress={handleOpprettBruker} disabled={brukerLaster}>
+                  {brukerLaster
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={s.confirmText}>Opprett</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -218,6 +472,8 @@ const s = StyleSheet.create({
   },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   headerTitle: { fontSize: 26, fontWeight: '700', color: C.foreground, letterSpacing: 0.3 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  addUserBtn: { padding: 4 },
   gearBtn: { padding: 4 },
   avdelingPicker: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -269,12 +525,34 @@ const s = StyleSheet.create({
   settingsItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 16 },
   settingsItemText: { fontSize: 15, fontWeight: '600', color: C.foreground },
 
-  addModal: { backgroundColor: C.card, borderRadius: 8, padding: 24, width: '100%', maxWidth: 340 },
+  addModal: { backgroundColor: C.card, borderRadius: 8, padding: 24, width: '100%', maxWidth: 400 },
   addModalTitle: { fontSize: 18, fontWeight: '700', color: C.foreground, marginBottom: 16 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: C.foreground, marginBottom: 16 },
-  addModalBtns: { flexDirection: 'row', gap: 10 },
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: C.foreground, marginBottom: 12 },
+  addModalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
   cancelBtn: { flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingVertical: 13, alignItems: 'center' },
   cancelText: { fontSize: 15, fontWeight: '600', color: C.mutedFg },
   confirmBtn: { flex: 1, backgroundColor: C.foreground, borderRadius: 4, paddingVertical: 13, alignItems: 'center' },
   confirmText: { fontSize: 15, fontWeight: '600', color: '#fff' },
+
+  // Rolle-velger
+  rolleLabel: { fontSize: 13, fontWeight: '600', color: C.mutedFg, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 },
+  rolleRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  rolleBtn: { flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingVertical: 11, alignItems: 'center' },
+  rolleBtnActive: { backgroundColor: C.foreground, borderColor: C.foreground },
+  rolleBtnText: { fontSize: 15, fontWeight: '600', color: C.mutedFg },
+  rolleBtnTextActive: { color: '#fff' },
+
+  // Bolig avdeling-velger
+  boligAvdelingListe: { gap: 8, marginBottom: 12 },
+  boligAvdelingItem: {
+    borderWidth: 1, borderColor: C.border, borderRadius: 4,
+    paddingHorizontal: 14, paddingVertical: 11,
+  },
+  boligAvdelingItemActive: { backgroundColor: C.foreground, borderColor: C.foreground },
+  boligAvdelingTekst: { fontSize: 15, fontWeight: '600', color: C.foreground },
+  boligAvdelingTekstActive: { color: '#fff' },
+
+  // Feil / suksess
+  feilTekst: { fontSize: 13, color: C.critical, marginBottom: 8 },
+  suksessTekst: { fontSize: 13, color: C.success, marginBottom: 8, fontWeight: '600' },
 });

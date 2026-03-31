@@ -11,7 +11,6 @@ import {
   Platform,
 } from 'react-native';
 import { router } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
 
 function useCurrentTime() {
   const [now, setNow] = useState(new Date());
@@ -36,19 +35,6 @@ function formatDate(date: Date) {
 
 export default function WelcomeScreen() {
   const now = useCurrentTime();
-  const { user } = useAuth();
-
-  function handleAdmin() {
-    if (user) {
-      router.replace('/admin');
-    } else {
-      router.push('/auth/login');
-    }
-  }
-
-  function handleBruker() {
-    router.push('/auth/bruker-login');
-  }
 
   return (
     <ImageBackground
@@ -80,23 +66,13 @@ export default function WelcomeScreen() {
           Din digitale omsorgstavle — alltid oppdatert, alltid tilgjengelig for deg og dine nærmeste.
         </Text>
 
-        <View style={s.buttons}>
-          <TouchableOpacity
-            style={s.btnUser}
-            onPress={handleBruker}
-            activeOpacity={0.85}
-          >
-            <Text style={s.btnUserText}>Bruker</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={s.btnAdmin}
-            onPress={handleAdmin}
-            activeOpacity={0.85}
-          >
-            <Text style={s.btnAdminText}>Admin</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={s.btnLogin}
+          onPress={() => router.push('/auth/login')}
+          activeOpacity={0.85}
+        >
+          <Text style={s.btnLoginText}>Logg inn</Text>
+        </TouchableOpacity>
       </View>
     </ImageBackground>
   );
@@ -174,34 +150,14 @@ const s = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 32,
   },
-  buttons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  btnUser: {
-    flex: 1,
+  btnLogin: {
     backgroundColor: C.foreground,
     borderRadius: 8,
     paddingVertical: 18,
     alignItems: 'center',
   },
-  btnUserText: {
+  btnLoginText: {
     color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  btnAdmin: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    borderRadius: 8,
-    paddingVertical: 18,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: C.foreground,
-  },
-  btnAdminText: {
-    color: C.foreground,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.3,

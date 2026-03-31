@@ -319,25 +319,34 @@ function TasksSection({ avdelingId }: { avdelingId: string }) {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function OmsorgstavleScreen() {
   const now = useCurrentTime();
-  const { avdelingId } = useAuth();
+  const { avdelingId, boligBruker, loggUtBolig } = useAuth();
   const [pinModal, setPinModal] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  function handleLogout() {
-    if (pin === PIN) {
+  // Boligbrukere bruker sin egen PIN fra Firestore, ansatte bruker hardkodet PIN
+  const gjeldendePin = boligBruker ? boligBruker.pin : PIN;
+
+  async function handleLogout() {
+    if (pin === gjeldendePin) {
       setPinModal(false);
       setPin('');
       setPinError(false);
-      signOut(auth).catch(() => {});
-      router.replace('/');
+      if (boligBruker) {
+        router.replace('/');
+        // Kall loggUtBolig etter navigasjon for å unngå konflikt med layout-redirect
+        setTimeout(() => loggUtBolig(), 100);
+      } else {
+        await signOut(auth);
+        router.replace('/');
+      }
     } else {
       setPinError(true);
       setPin('');
     }
   }
 
-  const avd = avdelingId ?? 'avdeling1';
+  const avd = boligBruker?.avdelingId ?? avdelingId ?? 'avdeling1';
 
   return (
     <SafeAreaView style={s.safe}>

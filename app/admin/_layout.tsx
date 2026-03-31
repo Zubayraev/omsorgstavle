@@ -4,13 +4,14 @@ import { View, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 
 export default function AdminLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, rolle } = useAuth();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (loading) return;
+    if (!user || rolle !== 'admin') {
       router.replace('/auth/login');
     }
-  }, [user, loading]);
+  }, [user, loading, rolle]);
 
   if (loading) {
     return (
@@ -20,7 +21,7 @@ export default function AdminLayout() {
     );
   }
 
-  if (!user) return null;
+  if (!user || rolle !== 'admin') return null;
 
   return (
     <Stack
@@ -30,7 +31,7 @@ export default function AdminLayout() {
         headerShadowVisible: false,
       }}
     >
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false, title: 'Admin' }} />
       <Stack.Screen name="avdeling/[id]" options={{ title: 'Avdeling' }} />
       <Stack.Screen name="beskjeder/[avdelingId]" options={{ title: 'Beskjeder' }} />
       <Stack.Screen name="ansatte/[avdelingId]" options={{ title: 'Ansatte' }} />
