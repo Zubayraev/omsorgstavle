@@ -10,7 +10,7 @@ import { signOut, createUserWithEmailAndPassword, signOut as fbSignOut } from 'f
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { router } from 'expo-router';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { db, auth, firebaseConfig } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -31,25 +31,11 @@ const MENU_ITEMS = [
     route: (id: string) => `/admin/beskjeder/${id}`,
   },
   {
-    key: 'ansatte',
-    icon: <Feather name="user" size={24} color="#1A1F36" />,
-    title: 'Ansatte',
-    sub: 'Se og legg til ansatte',
-    route: (id: string) => `/admin/ansatte/${id}`,
-  },
-  {
-    key: 'vakter',
-    icon: <Feather name="calendar" size={24} color="#1A1F36" />,
-    title: 'Vakter',
-    sub: 'Administrer vaktliste',
-    route: (id: string) => `/admin/vaktliste/${id}`,
-  },
-  {
-    key: 'medisin',
-    icon: <MaterialCommunityIcons name="pill" size={24} color="#1A1F36" />,
-    title: 'Medisin',
-    sub: 'Medisinplan og doser',
-    route: (id: string) => `/admin/medisin/${id}`,
+    key: 'alarmer',
+    icon: <Feather name="bell" size={24} color="#1A1F36" />,
+    title: 'Alarmer',
+    sub: 'Faste påminnelser',
+    route: (id: string) => `/admin/alarmer/${id}`,
   },
   {
     key: 'oppgaver',
@@ -57,6 +43,13 @@ const MENU_ITEMS = [
     title: 'Oppgaver',
     sub: 'Daglige oppgaver',
     route: (id: string) => `/admin/oppgaver/${id}`,
+  },
+  {
+    key: 'hendelser',
+    icon: <Feather name="calendar" size={24} color="#1A1F36" />,
+    title: 'Kalender',
+    sub: 'Hendelser og påminnelser',
+    route: (id: string) => `/admin/hendelser/${id}`,
   },
 ];
 
@@ -93,12 +86,16 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const q = query(collection(db, 'avdelinger'), orderBy('createdAt'));
-    return onSnapshot(q, (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, navn: (d.data() as any).navn }));
-      setAvdelinger(list);
-      if (!selected && list.length > 0) setSelected(list[0]);
-      setLoading(false);
-    });
+    return onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, navn: (d.data() as any).navn }));
+        setAvdelinger(list);
+        if (!selected && list.length > 0) setSelected(list[0]);
+        setLoading(false);
+      },
+      (err) => console.error('[Admin] avdelinger onSnapshot:', err.code, err.message),
+    );
   }, []);
 
   async function handleAdd() {

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
+import { User, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
@@ -41,8 +41,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        // Keep the app authenticated so the boliger-list is always readable.
+        // The second onAuthStateChanged fire (with the anon user) continues below.
+        signInAnonymously(auth);
+        return;
+      }
       setUser(u);
-      if (u) {
+      if (u.isAnonymous) {
+        // Anonymous users have no role and no department – not admin/ansatt.
+        setRolle(null);
+        setAvdelingId(null);
+        setLoading(false);
+        return;
+      }
+      try {
         const snap = await getDoc(doc(db, 'brukere', u.uid));
         if (snap.exists()) {
           const data = snap.data() as any;
@@ -52,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setRolle(null);
           setAvdelingId(null);
         }
-      } else {
+      } catch {
         setRolle(null);
         setAvdelingId(null);
       }

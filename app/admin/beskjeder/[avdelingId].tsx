@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import {
   collection, addDoc, onSnapshot, orderBy, query,
-  serverTimestamp, doc, getDoc,
+  serverTimestamp, doc, getDoc, Timestamp,
 } from 'firebase/firestore';
 import { useLocalSearchParams } from 'expo-router';
 import { db } from '@/lib/firebase';
@@ -15,7 +15,7 @@ const C = {
   mutedFg: '#6B6E7B', border: '#D1D3D9', attention: '#D4A017',
 };
 
-type Message = { id: string; from: string; text: string; priority: string; time: string };
+type Message = { id: string; from: string; text: string; priority: string; time: string; expiresAt?: any };
 
 export default function BeskjederScreen() {
   const { avdelingId } = useLocalSearchParams<{ avdelingId: string }>();
@@ -30,9 +30,13 @@ export default function BeskjederScreen() {
       if (d.exists()) setAvdelingNavn((d.data() as any).navn ?? avdelingId);
     });
     const q = query(collection(db, 'avdelinger', avdelingId, 'beskjeder'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Message, 'id'>) })));
-    });
+    return onSnapshot(
+      q,
+      (snap) => {
+        setMessages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Message, 'id'>) })));
+      },
+      (err) => console.error('[Beskjeder] onSnapshot:', err.code, err.message),
+    );
   }, [avdelingId]);
 
   async function handleSend() {
@@ -45,6 +49,8 @@ export default function BeskjederScreen() {
       priority,
       time: now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' }),
       createdAt: serverTimestamp(),
+      expiresAt: Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+      lest: false,
     });
     setText('');
     setSending(false);
@@ -76,18 +82,24 @@ export default function BeskjederScreen() {
 
         <Text style={s.sectionTitle}>Sendte beskjeder</Text>
         {messages.length === 0 && <Text style={s.empty}>Ingen beskjeder ennå</Text>}
-        {messages.map((msg) => (
-          <View key={msg.id} style={s.msgCard}>
-            <View style={[s.bar, { backgroundColor: msg.priority === 'attention' ? C.attention : 'transparent' }]} />
-            <View style={s.msgContent}>
-              <View style={s.msgMeta}>
-                <Text style={s.msgFrom}>{msg.from}</Text>
-                <Text style={s.msgTime}>{msg.time}</Text>
+        {messages.map((msg) => {
+          const utlopt = msg.expiresAt?.toDate && msg.expiresAt.toDate() < new Date();
+          return (
+            <View key={msg.id} style={[s.msgCard, utlopt && s.msgCardUtlopt]}>
+              <View style={[s.bar, { backgroundColor: msg.priority === 'attention' ? C.attention : 'transparent' }]} />
+              <View style={s.msgContent}>
+                <View style={s.msgMeta}>
+                  <Text style={s.msgFrom}>{msg.from}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {utlopt && <Text style={s.utloptLabel}>Utløpt</Text>}
+                    <Text style={s.msgTime}>{msg.time}</Text>
+                  </View>
+                </View>
+                <Text style={[s.msgText, utlopt && { color: C.mutedFg }]}>{msg.text}</Text>
               </View>
-              <Text style={s.msgText}>{msg.text}</Text>
             </View>
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -111,6 +123,8 @@ const s = StyleSheet.create({
   sectionTitle: { fontSize: 17, fontWeight: '600', color: C.foreground, marginBottom: 14 },
   empty: { color: C.mutedFg, fontSize: 14, textAlign: 'center', marginBottom: 16 },
   msgCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, flexDirection: 'row', marginBottom: 10, overflow: 'hidden' },
+  msgCardUtlopt: { opacity: 0.55 },
+  utloptLabel: { fontSize: 11, fontWeight: '600', color: C.mutedFg, textTransform: 'uppercase', letterSpacing: 0.3 },
   bar: { width: 4 },
   msgContent: { flex: 1, padding: 14 },
   msgMeta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },

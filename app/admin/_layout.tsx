@@ -34,10 +34,9 @@ export default function AdminLayout() {
       <Stack.Screen name="index" options={{ headerShown: false, title: 'Admin' }} />
       <Stack.Screen name="avdeling/[id]" options={{ title: 'Avdeling' }} />
       <Stack.Screen name="beskjeder/[avdelingId]" options={{ title: 'Beskjeder' }} />
-      <Stack.Screen name="ansatte/[avdelingId]" options={{ title: 'Ansatte' }} />
-      <Stack.Screen name="vaktliste/[avdelingId]" options={{ title: 'Vaktliste' }} />
-      <Stack.Screen name="medisin/[avdelingId]" options={{ title: 'Medisin' }} />
+      <Stack.Screen name="alarmer/[avdelingId]" options={{ title: 'Alarmer' }} />
       <Stack.Screen name="oppgaver/[avdelingId]" options={{ title: 'Oppgaver' }} />
+      <Stack.Screen name="hendelser/[avdelingId]" options={{ title: 'Kalender' }} />
     </Stack>
   );
 }

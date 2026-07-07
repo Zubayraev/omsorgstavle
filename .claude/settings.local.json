@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(ls /c/Users/Zubay/omsorgstavle/app/\\\\\\(tabs\\\\\\)/)",
-      "Bash(cat /c/Users/Zubay/omsorgstavle/app/\\\\\\(tabs\\\\\\)/_layout.tsx)"
+      "Bash(cat /c/Users/Zubay/omsorgstavle/app/\\\\\\(tabs\\\\\\)/_layout.tsx)",
+      "Bash(npx tsc *)",
+      "Bash(Remove-Item -ErrorAction SilentlyContinue \"app/\\(tabs\\)/vaktliste.tsx\", \"app/\\(tabs\\)/medisin.tsx\", \"app/\\(tabs\\)/oppgaver.tsx\", \"app/\\(tabs\\)/innstillinger.tsx\", \"firestore.rules\")",
+      "Bash(rm -f \"app/\\(tabs\\)/vaktliste.tsx\" \"app/\\(tabs\\)/medisin.tsx\" \"app/\\(tabs\\)/oppgaver.tsx\" \"app/\\(tabs\\)/innstillinger.tsx\" \"firestore.rules\")"
     ]
   }
 }

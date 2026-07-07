@@ -30,11 +30,15 @@ export default function LoginScreen() {
 
   useEffect(() => {
     const q = query(collection(db, 'boliger'), orderBy('createdAt'));
-    const unsub = onSnapshot(q, (snap) => {
-      const liste = snap.docs.map((d) => ({ id: d.id, navn: (d.data() as any).navn }));
-      setBoliger(liste);
-      if (liste.length > 0 && !valgtBolig) setValgtBolig(liste[0].navn);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const liste = snap.docs.map((d) => ({ id: d.id, navn: (d.data() as any).navn }));
+        setBoliger(liste);
+        if (liste.length > 0 && !valgtBolig) setValgtBolig(liste[0].navn);
+      },
+      (err) => console.error('[Login] boliger onSnapshot:', err.code, err.message),
+    );
     return unsub;
   }, []);
 
@@ -43,12 +47,33 @@ export default function LoginScreen() {
     setLaster(true);
     setFeil('');
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, passord);
-      const snap = await getDoc(doc(db, 'brukere', cred.user.uid));
+      let cred;
+      try {
+        cred = await signInWithEmailAndPassword(auth, email, passord);
+      } catch (authErr: any) {
+        console.log('[Login] auth-feil:', authErr?.code, authErr?.message);
+        const kjenteFeil = ['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found'];
+        setFeil(kjenteFeil.includes(authErr?.code) ? 'Feil e-post eller passord' : 'Innlogging feilet');
+        return;
+      }
+
+      let snap;
+      try {
+        snap = await getDoc(doc(db, 'brukere', cred.user.uid));
+      } catch (dbErr: any) {
+        console.log('[Login] Firestore-feil:', dbErr?.code, dbErr?.message);
+        await signOut(auth);
+        setFeil(
+          dbErr?.code === 'permission-denied'
+            ? 'Mangler tilgang i databasen (Firestore-regler)'
+            : 'Kunne ikke hente brukerdata'
+        );
+        return;
+      }
+
       if (!snap.exists()) {
         await signOut(auth);
         setFeil('Ingen tilgang');
-        setLaster(false);
         return;
       }
       const data = snap.data() as any;
@@ -60,8 +85,6 @@ export default function LoginScreen() {
         await signOut(auth);
         setFeil('Ingen tilgang');
       }
-    } catch {
-      setFeil('Feil e-post eller passord');
     } finally {
       setLaster(false);
     }

@@ -35,9 +35,13 @@ export default function AvdelingScreen() {
       collection(db, 'avdelinger', id, 'beskjeder'),
       orderBy('createdAt', 'desc')
     );
-    return onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Message, 'id'>) })));
-    });
+    return onSnapshot(
+      q,
+      (snap) => {
+        setMessages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Message, 'id'>) })));
+      },
+      (err) => console.error('[Avdeling] beskjeder onSnapshot:', err.code, err.message),
+    );
   }, [id]);
 
   async function handleSend() {
@@ -50,6 +54,7 @@ export default function AvdelingScreen() {
       priority,
       time: now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' }),
       createdAt: serverTimestamp(),
+      lest: false,
     });
     setText('');
     setSending(false);
@@ -76,8 +81,16 @@ export default function AvdelingScreen() {
             onPress={() => router.push(`/admin/vaktliste/${id}` as any)}
             activeOpacity={0.75}
           >
-            <Feather name="calendar" size={22} color={C.foreground} />
+            <Feather name="clock" size={22} color={C.foreground} />
             <Text style={s.navLabel}>Vaktliste</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.navCard}
+            onPress={() => router.push(`/admin/hendelser/${id}` as any)}
+            activeOpacity={0.75}
+          >
+            <Feather name="calendar" size={22} color={C.foreground} />
+            <Text style={s.navLabel}>Kalender</Text>
           </TouchableOpacity>
         </View>
 
