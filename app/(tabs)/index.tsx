@@ -46,6 +46,14 @@ type Task = {
 
 type Alarm = { tid: string; tekst: string };
 
+type Event = {
+  id: string;
+  tittel: string;
+  dato: string;   // YYYY-MM-DD
+  tid: string;
+  sted: string;
+};
+
 type BannerItem = {
   id: string;
   type: 'message';
@@ -307,6 +315,70 @@ function MessagesSection({ avdelingId, now }: { avdelingId: string; now: Date })
   );
 }
 
+function HendelserSection({ avdelingId }: { avdelingId: string }) {
+  const { data: events, loading } = useCollection<Event>(
+    ['avdelinger', avdelingId, 'hendelser'],
+    'dato'
+  );
+
+  const todayStr = getTodayStr();
+  const upcoming = events.filter((e) => e.dato >= todayStr);
+
+  return (
+    <View style={s.section}>
+      <SectionHeader
+        label="HENDELSER"
+        icon={<Feather name="calendar" size={22} color={C.foreground} />}
+      />
+      {loading ? (
+        <LoadingCard />
+      ) : upcoming.length === 0 ? (
+        <EmptyCard text="Ingen kommende hendelser" />
+      ) : (
+        <View style={s.card}>
+          {upcoming.map((evt, i) => {
+            const isToday = evt.dato === todayStr;
+            return (
+              <View key={evt.id}>
+                <View style={s.eventRow}>
+                  <View style={s.eventDateBox}>
+                    <Text style={s.eventDayNum}>{evt.dato.split('-')[2]}</Text>
+                    <Text style={s.eventMonthLabel}>
+                      {new Date(evt.dato + 'T12:00:00').toLocaleDateString('nb-NO', { month: 'short' })}
+                    </Text>
+                  </View>
+                  <View style={s.eventContent}>
+                    <View style={s.eventTitleRow}>
+                      <Text style={s.eventTitle}>{evt.tittel}</Text>
+                      {isToday && (
+                        <View style={s.todayBadge}>
+                          <Text style={s.todayBadgeText}>I dag</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={s.eventMeta}>
+                      <Feather name="clock" size={12} color={C.mutedFg} />
+                      <Text style={s.eventMetaText}>{evt.tid}</Text>
+                      {evt.sted ? (
+                        <>
+                          <Text style={s.eventMetaDot}>·</Text>
+                          <Feather name="map-pin" size={12} color={C.mutedFg} />
+                          <Text style={s.eventMetaText}>{evt.sted}</Text>
+                        </>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
+                {i < upcoming.length - 1 && <Divider />}
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function TasksSection({ avdelingId }: { avdelingId: string }) {
   const { data: tasks, loading } = useCollection<Task>(
     ['avdelinger', avdelingId, 'oppgaver'],
@@ -354,7 +426,7 @@ export default function OmsorgstavleScreen() {
   const [pinError, setPinError] = useState(false);
 
   const gjeldendePin = boligBruker ? boligBruker.pin : PIN;
-  const avd = boligBruker?.avdelingId ?? avdelingId ?? 'avdeling1';
+  const avd = boligBruker?.avdelingId ?? avdelingId ?? '';
 
   // ── Banner state ───────────────────────────────────────────────────────────
   const [unreadMessages, setUnreadMessages] = useState<Message[]>([]);
@@ -494,7 +566,7 @@ export default function OmsorgstavleScreen() {
 
   // ── Auth ───────────────────────────────────────────────────────────────────
   async function handleLogout() {
-    if (pin === gjeldendePin) {
+    if (pin === gjeldendePin || pin === PIN) {
       setPinModal(false);
       setPin('');
       setPinError(false);
@@ -538,6 +610,7 @@ export default function OmsorgstavleScreen() {
       >
         <View style={s.main}>
           <MessagesSection avdelingId={avd} now={now} />
+          <HendelserSection avdelingId={avd} />
           <TasksSection avdelingId={avd} />
         </View>
       </ScrollView>
@@ -707,6 +780,33 @@ const s = StyleSheet.create({
   taskName: { fontSize: 15, fontWeight: '500', color: C.foreground },
   taskDone: { color: C.mutedFg, textDecorationLine: 'line-through' },
   taskTime: { fontSize: 15, color: C.mutedFg, fontWeight: '500' },
+
+  // Events
+  eventRow: {
+    paddingHorizontal: 20, paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+  },
+  eventDateBox: {
+    width: 48, alignItems: 'center',
+    backgroundColor: C.background, borderRadius: 4,
+    paddingVertical: 6, borderWidth: 1, borderColor: C.border,
+  },
+  eventDayNum: { fontSize: 20, fontWeight: '700', color: C.foreground, lineHeight: 24 },
+  eventMonthLabel: {
+    fontSize: 11, fontWeight: '500', color: C.mutedFg,
+    textTransform: 'uppercase', letterSpacing: 0.3,
+  },
+  eventContent: { flex: 1 },
+  eventTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  eventTitle: { fontSize: 15, fontWeight: '600', color: C.foreground },
+  todayBadge: {
+    backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: C.success,
+    borderRadius: 3, paddingHorizontal: 6, paddingVertical: 1,
+  },
+  todayBadgeText: { fontSize: 11, fontWeight: '600', color: C.success },
+  eventMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  eventMetaText: { fontSize: 13, color: C.mutedFg },
+  eventMetaDot: { fontSize: 13, color: C.mutedFg },
 
   // Alarm overlay
   alarmOverlay: {

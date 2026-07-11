@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function TabLayout() {
   const { user, loading, boligBruker } = useAuth();
-  const harTilgang = !!user || !!boligBruker;
+  const harTilgang = (!!user && !user.isAnonymous) || !!boligBruker;
 
   useEffect(() => {
     if (!loading && !harTilgang) {
